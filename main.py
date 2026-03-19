@@ -11,10 +11,91 @@ client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 POSITIONS = ["과거", "현재", "미래"]
 
-SPREAD_MEANINGS = {
-    "과거": "이 상황의 배경과 원인",
-    "현재": "지금 이 순간의 상태",
-    "미래": "앞으로 나아갈 방향",
+MENU_QUICK_REPLIES = [
+    {"label": "⚖️ Yes/No", "action": "message", "messageText": "Yes/No 타로"},
+    {"label": "💕 재회/연애운", "action": "message", "messageText": "재회/연애운 타로"},
+    {"label": "💼 직장/금전운", "action": "message", "messageText": "직장/금전운 타로"},
+    {"label": "🔮 오늘의 타로", "action": "message", "messageText": "오늘의 타로"},
+    {"label": "❓ 직접 질문", "action": "message", "messageText": "질문 타로"},
+]
+
+CATEGORY_PROMPTS = {
+    "yes_no": {
+        "question": "이 상황에서 Yes일까요, No일까요?",
+        "instruction": """카드 3장을 뽑아 Yes/No 타로를 해석해주세요.
+
+형식:
+🃏 Yes/No 타로 결과
+
+⬅️ 첫 번째 카드 — {card0}
+(이 카드의 의미를 Yes/No 관점에서 2문장으로 해석)
+
+🔮 두 번째 카드 — {card1}
+(이 카드의 의미를 Yes/No 관점에서 2문장으로 해석)
+
+➡️ 세 번째 카드 — {card2}
+(이 카드의 의미를 Yes/No 관점에서 2문장으로 해석)
+
+✨ 최종 답변: Yes / No / 조건부 Yes
+(세 카드를 종합해 결론을 내리고 2~3문장으로 조언)"""
+    },
+    "love": {
+        "question": "재회 가능성과 연애운은 어떤가요?",
+        "instruction": """연애운과 재회 가능성에 집중하여 쓰리카드 스프레드로 타로를 해석해주세요.
+
+형식:
+💕 재회/연애운 타로 결과
+
+⬅️ 현재 감정 — {card0}
+(상대방 또는 본인의 현재 감정 상태를 2~3문장으로 해석)
+
+🔮 관계의 흐름 — {card1}
+(두 사람 사이의 현재 에너지와 흐름을 2~3문장으로 해석)
+
+➡️ 앞으로의 가능성 — {card2}
+(재회 또는 새로운 사랑의 가능성을 2~3문장으로 해석)
+
+✨ 종합 메시지
+(연애운 전체를 종합한 따뜻한 조언을 3~4문장으로)"""
+    },
+    "career": {
+        "question": "직장운과 금전운은 어떤가요?",
+        "instruction": """직장운과 금전운에 집중하여 쓰리카드 스프레드로 타로를 해석해주세요.
+
+형식:
+💼 직장/금전운 타로 결과
+
+⬅️ 현재 상황 — {card0}
+(직장 또는 금전 관련 현재 상황을 2~3문장으로 해석)
+
+🔮 장애물/기회 — {card1}
+(앞에 놓인 도전이나 기회를 2~3문장으로 해석)
+
+➡️ 결과/방향 — {card2}
+(앞으로의 직장/금전 흐름을 2~3문장으로 해석)
+
+✨ 종합 메시지
+(직장과 금전운 전체를 종합한 실용적인 조언을 3~4문장으로)"""
+    },
+    "daily": {
+        "question": "오늘 나의 하루는 어떤가요?",
+        "instruction": """오늘 하루의 에너지에 집중하여 쓰리카드 스프레드로 타로를 해석해주세요.
+
+형식:
+🌟 오늘의 타로 결과
+
+⬅️ 오전의 에너지 — {card0}
+(오전에 집중할 에너지와 태도를 2~3문장으로)
+
+🔮 오늘의 핵심 — {card1}
+(오늘 하루 가장 중요한 메시지를 2~3문장으로)
+
+➡️ 오늘의 마무리 — {card2}
+(오늘 하루를 어떻게 마무리할지 2~3문장으로)
+
+✨ 오늘의 한마디
+(오늘 하루를 위한 짧고 힘이 되는 메시지)"""
+    },
 }
 
 
@@ -22,42 +103,51 @@ def draw_three_cards():
     return random.sample(TAROT_CARDS, 3)
 
 
-def build_claude_prompt(question: str, cards: list) -> str:
-    card_info = ""
-    for i, (card, position) in enumerate(zip(cards, POSITIONS)):
-        card_info += f"- {position} ({SPREAD_MEANINGS[position]}): {card['name_kr']} ({card['name']}) — 키워드: {card['keywords']}\n"
+def build_claude_prompt(category: str, question: str, cards: list) -> str:
+    card_info = "\n".join(
+        [f"- {card['name_kr']} ({card['name']}) — 키워드: {card['keywords']}" for card in cards]
+    )
+
+    if category in CATEGORY_PROMPTS:
+        instruction = CATEGORY_PROMPTS[category]["instruction"].format(
+            card0=cards[0]['name_kr'],
+            card1=cards[1]['name_kr'],
+            card2=cards[2]['name_kr'],
+        )
+    else:
+        instruction = f"""쓰리카드 스프레드로 타로를 해석해주세요.
+
+형식:
+🃏 타로 리딩 결과
+
+⬅️ 과거 — {cards[0]['name_kr']}
+(과거 위치에서의 해석을 2~3문장으로)
+
+🔮 현재 — {cards[1]['name_kr']}
+(현재 위치에서의 해석을 2~3문장으로)
+
+➡️ 미래 — {cards[2]['name_kr']}
+(미래 위치에서의 해석을 2~3문장으로)
+
+✨ 종합 메시지
+(전체 흐름과 조언을 3~4문장으로)"""
 
     prompt = f"""당신은 따뜻하고 통찰력 있는 타로 리더입니다.
-사용자의 질문에 대해 쓰리카드 스프레드로 타로 해석을 해주세요.
 
 질문: {question}
 
 뽑힌 카드:
 {card_info}
 
-다음 형식으로 한국어로 답해주세요:
-
-🃏 타로 리딩 결과
-
-⬅️ 과거 — {cards[0]['name_kr']}
-(이 카드가 과거 위치에서 질문과 어떤 의미인지 2~3문장으로 따뜻하게 해석)
-
-🔮 현재 — {cards[1]['name_kr']}
-(이 카드가 현재 위치에서 질문과 어떤 의미인지 2~3문장으로 따뜻하게 해석)
-
-➡️ 미래 — {cards[2]['name_kr']}
-(이 카드가 미래 위치에서 질문과 어떤 의미인지 2~3문장으로 따뜻하게 해석)
-
-✨ 종합 메시지
-(세 카드를 연결하여 전체적인 흐름과 조언을 3~4문장으로 마무리)
+{instruction}
 
 답변은 공감적이고 희망적인 톤으로 작성해주세요. 너무 단정 짓지 말고 가능성을 열어두는 표현을 사용하세요."""
 
     return prompt
 
 
-def get_tarot_reading(question: str, cards: list) -> str:
-    prompt = build_claude_prompt(question, cards)
+def get_tarot_reading(category: str, question: str, cards: list) -> str:
+    prompt = build_claude_prompt(category, question, cards)
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
@@ -70,32 +160,18 @@ def kakao_text_response(text: str) -> dict:
     return {
         "version": "2.0",
         "template": {
-            "outputs": [
-                {"simpleText": {"text": text}}
-            ],
-            "quickReplies": [
-                {
-                    "label": "🔮 다시 뽑기",
-                    "action": "message",
-                    "messageText": "타로 카드 뽑기",
-                },
-                {
-                    "label": "❓ 질문하기",
-                    "action": "message",
-                    "messageText": "질문 타로",
-                },
-            ],
+            "outputs": [{"simpleText": {"text": text}}],
+            "quickReplies": MENU_QUICK_REPLIES,
         },
     }
 
 
-def kakao_error_response(message: str) -> dict:
+def kakao_error_response(msg: str) -> dict:
     return {
         "version": "2.0",
         "template": {
-            "outputs": [
-                {"simpleText": {"text": message}}
-            ]
+            "outputs": [{"simpleText": {"text": msg}}],
+            "quickReplies": MENU_QUICK_REPLIES,
         },
     }
 
@@ -106,8 +182,25 @@ async def tarot_webhook(request: Request):
         body = await request.json()
         utterance = body.get("userRequest", {}).get("utterance", "").strip()
 
-        # 질문 타로: "질문 타로 [질문내용]" 형식
-        if utterance.startswith("질문 타로"):
+        # 카테고리 분류
+        if "Yes/No" in utterance or "yes/no" in utterance:
+            category = "yes_no"
+            question = CATEGORY_PROMPTS["yes_no"]["question"]
+
+        elif "재회" in utterance or "연애운" in utterance:
+            category = "love"
+            question = CATEGORY_PROMPTS["love"]["question"]
+
+        elif "직장" in utterance or "금전운" in utterance:
+            category = "career"
+            question = CATEGORY_PROMPTS["career"]["question"]
+
+        elif "오늘" in utterance:
+            category = "daily"
+            question = CATEGORY_PROMPTS["daily"]["question"]
+
+        elif utterance.startswith("질문 타로"):
+            category = "custom"
             question = utterance.replace("질문 타로", "").strip()
             if not question:
                 return JSONResponse(
@@ -116,15 +209,13 @@ async def tarot_webhook(request: Request):
                     )
                 )
         else:
-            # 기본: 일반 타로 뽑기
-            question = "오늘 나의 하루는 어떤가요?"
+            category = "daily"
+            question = CATEGORY_PROMPTS["daily"]["question"]
 
         cards = draw_three_cards()
-        reading = get_tarot_reading(question, cards)
+        reading = get_tarot_reading(category, question, cards)
 
-        card_names = " | ".join(
-            [f"{pos}: {card['name_kr']}" for pos, card in zip(POSITIONS, cards)]
-        )
+        card_names = " | ".join([card['name_kr'] for card in cards])
         full_text = f"🎴 {card_names}\n\n{reading}"
 
         return JSONResponse(kakao_text_response(full_text))
